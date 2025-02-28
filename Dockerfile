@@ -60,7 +60,8 @@ WORKDIR /app
 # Copy static assets and test cases file.
 COPY static /app/static
 COPY test_cases.json /app/test_cases.json
-
+COPY tempfiles /app/tempfiles
+RUN chmod -R +x /app/tempfiles
 # Copy the compiled Rust binary from the builder stage.
 COPY --from=builder /app/target/release/autograder /app/autograder
 

@@ -38,45 +38,110 @@ struct Upload<'r> {
 
 /// GET /
 /// Returns the index page with a form for uploading C code.
-/// The page also includes a link to the favicon (served from /static).
+/// The page also includes general website info about the autograder and a dynamic
+/// description of the selected question.
 #[get("/")]
 async fn index() -> RawHtml<&'static str> {
-    RawHtml(r#"
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Autograder</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
-      </head>
-      <body>
-        <div class="container mt-5">
-          <h1>Upload Your C Code</h1>
-          <form action="/upload" method="post" enctype="multipart/form-data">
-            <div class="mb-3">
-              <label for="question" class="form-label">Select Question:</label>
-              <select id="question" name="question" class="form-select">
-                <option value="q1">Q1</option>
-                <option value="q2">Q2</option>
-                <option value="q3">Q3</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label for="file" class="form-label">C File:</label>
-              <input type="file" class="form-control" id="file" name="file" accept=".c">
-            </div>
-            <button type="submit" class="btn btn-primary">Submit</button>
-          </form>
+    RawHtml(r##"
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Autograder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <style>
+      body { background-color: #f8f9fa; }
+      .header { text-align: center; margin-top: 20px; }
+      .info { text-align: center; margin-bottom: 30px; }
+    </style>
+  </head>
+  <body>
+    <div class="container mt-5">
+      <div class="header">
+        <h1>Autograder</h1>
+        <p class="info">Welcome to the Autograder! Upload your C code to get instant feedback based on predefined test cases.</p>
+      </div>
+      <form action="/upload" method="post" enctype="multipart/form-data">
+        <div class="mb-3">
+          <label for="question" class="form-label">Select Question:</label>
+          <select id="question" name="question" class="form-select">
+            <option value="q1">Q1: Average Positive/Negative</option>
+            <option value="q2">Q2: Tic Tac Toe</option>
+            <option value="q3">Q3: Series Sum (Repeated 9s)</option>
+            <option value="q4">Q4: Count Pos/Neg/Zero (Stop on Repeat)</option>
+            <option value="q5">Q5: Min/Second/Third/Largest with Termination</option>
+            <option value="q6">Q6: Vowel or Consonant Checker</option>
+            <option value="q7">Q7: Prime Number Finder</option>
+            <option value="q8">Q8: Right-Angle Triangle Pattern</option>
+            <option value="q9">Q9: Sum of Even Natural Numbers</option>
+            <option value="q10">Q10: Reverse a Number</option>
+            <option value="q11">Q11: Taylor Series 1/(1-x)</option>
+            <option value="q12">Q12: Bitwise Operations (Hex Input)</option>
+            <option value="q13">Q13: Cosine Calculation (Taylor Series)</option>
+            <option value="q14">Q14: Binary (Hex) to Decimal Conversion</option>
+            <option value="q15">Q15: File Copy Scanner</option>
+            <option value="q16">Q16: Extract Identifiers</option>
+            <option value="q17">Q17: Uppercase Identifiers</option>
+            <option value="q18">Q18: Recognize Operators</option>
+            <option value="q19">Q19: Recognize Additional Operators</option>
+            <option value="q20">Q20: Recognize Special Characters</option>
+            <option value="q21">Q21: Integrated Scanner Program</option>
+          </select>
         </div>
-      </body>
-    </html>
-    "#)
+        <div class="mb-3">
+          <p id="question-description" class="text-muted"></p>
+        </div>
+        <div class="mb-3">
+          <label for="file" class="form-label">C File:</label>
+          <input type="file" class="form-control" id="file" name="file" accept=".c">
+        </div>
+        <button type="submit" class="btn btn-primary">Submit</button>
+      </form>
+    </div>
+    <script>
+      const descriptions = {
+         'q1': 'Compute average of positive and negative numbers from 15 decimal inputs.',
+         'q2': 'Determine the Tic Tac Toe game outcome (win, draw, in progress, invalid board).',
+         'q3': 'Compute the sum of the series: 9 + 99 + 999 + ... for n terms.',
+         'q4': 'Count positive, negative, and zero values until the same value is entered consecutively.',
+         'q5': 'Find the smallest, second smallest, third smallest, and largest values with termination when the largest remains unchanged for n iterations.',
+         'q6': 'Repeatedly check if an input character is a vowel or a consonant (ends on "#").',
+         'q7': 'Find and display all prime numbers within a given range.',
+         'q8': 'Display a right-angle triangle pattern based on the number of rows provided.',
+         'q9': 'Display even natural numbers for n terms and compute their sum.',
+         'q10': 'Reverse the digits of a given number.',
+         'q11': 'Compute 1/(1-x) using Taylor series expansion until the precision threshold is met.',
+         'q12': 'Perform a bitwise operation (AND, OR, XOR) on two hexadecimal inputs.',
+         'q13': 'Calculate the cosine of a given angle (in degrees) using Taylor series.',
+         'q14': 'Convert a binary number provided as a hexadecimal input into its decimal equivalent.',
+         'q15': 'Copy an input text file exactly to an output file.',
+         'q16': 'Scan a text file and extract identifiers.',
+         'q17': 'Scan a text file and output all identifiers in uppercase.',
+         'q18': 'Scan a text file and recognize basic operators (+, -, *, /, %).',
+         'q19': 'Extend operator recognition to include increment, decrement, assignment, and compound operators.',
+         'q20': 'Recognize special characters (dot, comma, semicolon, colon) in a text file.',
+         'q21': 'An integrated scanner program that combines identifier, operator, and special character recognition.'
+      };
+      const select = document.getElementById('question');
+      const descElem = document.getElementById('question-description');
+      function updateDescription() {
+         const selected = select.value;
+         descElem.textContent = descriptions[selected] || '';
+      }
+      select.addEventListener('change', updateDescription);
+      // Initialize on load
+      updateDescription();
+    </script>
+  </body>
+</html>
+"##)
 }
 
 /// POST /upload
 /// Handles the file upload, compiles the C code, loads test cases, and runs them
-/// inside a sandboxed environment using NSJail.
+/// inside a sandboxed environment using NSJail. Displays a test summary along with
+/// individual test results.
 #[post("/upload", data = "<form>")]
 async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
     use uuid::Uuid;
@@ -179,15 +244,12 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
             return RawHtml("<h2>Internal error: compiled executable not found.</h2>".to_string());
         }
 
-        // Use NSJail to run the executable. We bindmount the tempfiles directory,
-        // as well as necessary system directories for dynamic linking.
+        // Use NSJail to run the executable.
         let mut child = match Command::new("nsjail")
             .args(&[
                 "--mode=exec",
                 "--disable_clone_newuser",
-                // Bind the tempfiles directory so the executable is visible.
                 "--bindmount", "/app/tempfiles:/app/tempfiles",
-                // Bind additional system library directories (adjust these as needed):
                 "--bindmount", "/lib:/lib",
                 "--bindmount", "/usr/lib:/usr/lib",
                 "--", &exe_path_str,
@@ -231,57 +293,111 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
     let _ = fs::remove_file(&tmp_path);
     let _ = fs::remove_file(&exe_path);
 
-    // Build the HTML output to display test results with an animated reveal.
-    let mut results_html = String::from("<h1>Test Results</h1><div id='results'>");
-    for (i, (desc, passed, details)) in results.into_iter().enumerate() {
-        let bg_class = if passed { "bg-success" } else { "bg-danger" };
-        results_html.push_str(&format!(
-            "<div class='list-group-item {} text-white test-result' style='display:none;' data-delay='{}'>
-              <strong>{}</strong>: {}
-              <pre>{}</pre>
-            </div>", 
-            bg_class, i * 500, desc, if passed { "Passed" } else { "Failed" }, details
-        ));
-    }
-    results_html.push_str("</div><a href='/' class='btn btn-secondary'>Upload another file</a>");
+    // Calculate test summary.
+let total_tests = results.len();
+let passed_tests = results.iter().filter(|(_, passed, _)| *passed).count();
+let passing_percentage = if total_tests > 0 {
+    passed_tests as f64 / total_tests as f64 * 100.0
+} else {
+    0.0
+};
+let summary_html = format!(
+    "<div class='alert alert-info' style='font-family: \"Segoe UI\", sans-serif;'>
+       <h2>Test Summary</h2>
+       <p>Passed {}/{} test cases ({:.2}%)</p>
+     </div>",
+    passed_tests, total_tests, passing_percentage
+);
 
-    let script = r#"
-    <script>
-      window.addEventListener('DOMContentLoaded', () => {
-        const results = document.querySelectorAll('.test-result');
-        results.forEach((result, index) => {
-          setTimeout(() => {
-            result.style.display = 'block';
-            result.style.opacity = 0;
-            let op = 0;
-            const timer = setInterval(() => {
-              if (op >= 1) clearInterval(timer);
-              result.style.opacity = op;
-              op += 0.1;
-            }, 30);
-          }, index * 500);
-        });
-      });
-    </script>
-    "#;
-    let full_html = format!(r#"
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Execution Result</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-      </head>
-      <body>
-        <div class="container mt-5">
-          {}
-        </div>
-        {}
-      </body>
-    </html>
-    "#, results_html, script);
+// Build the HTML output with improved styling.
+let mut results_html = String::from("<h1 style='font-family: \"Segoe UI\", sans-serif;'>Test Results</h1>");
+results_html.push_str(&summary_html);
+results_html.push_str("<div id='results'>");
 
-    RawHtml(full_html)
+for (i, (desc, passed, details)) in results.into_iter().enumerate() {
+    let bg_class = if passed { "bg-success" } else { "bg-danger" };
+    // For failed tests, wrap the details in a diff span to highlight the error.
+    let detail_markup = if passed {
+        details
+    } else {
+        format!("<span class='diff'>{}</span>", details)
+    };
+    results_html.push_str(&format!(
+        "<div class='list-group-item {} text-white test-result' style='display:none; font-family: \"Segoe UI\", sans-serif; padding: 10px; border-radius: 5px; margin-bottom: 5px;' data-delay='{}'>
+           <strong>{}</strong>: {}
+           <pre style='background-color: #f1f1f1; color: #333; padding: 10px; border-radius: 5px; font-family: \"Courier New\", monospace;'>{}</pre>
+         </div>",
+        bg_class,
+        i * 500,
+        desc,
+        if passed { "Passed" } else { "Failed" },
+        detail_markup
+    ));
+}
+results_html.push_str("</div><a href='/' class='btn btn-secondary mt-3' style='font-family: \"Segoe UI\", sans-serif;'>Upload another file</a>");
+
+let script = r#"
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    const results = document.querySelectorAll('.test-result');
+    results.forEach((result, index) => {
+      setTimeout(() => {
+        result.style.display = 'block';
+        result.style.opacity = 0;
+        let op = 0;
+        const timer = setInterval(() => {
+          if (op >= 1) clearInterval(timer);
+          result.style.opacity = op;
+          op += 0.1;
+        }, 30);
+      }, index * 500);
+    });
+  });
+</script>
+"#;
+
+let full_html = format!(r#"
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Execution Result</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body {{
+          background-color: #f8f9fa;
+          font-family: "Segoe UI", sans-serif;
+      }}
+      .container {{
+          margin-top: 30px;
+      }}
+      .test-result {{
+          margin-bottom: 10px;
+          padding: 10px;
+          border-radius: 5px;
+      }}
+      pre {{
+          background-color: #f1f1f1;
+          padding: 10px;
+          border-radius: 5px;
+          font-family: "Courier New", monospace;
+      }}
+      .diff {{
+          background-color: #ffdddd;
+          font-weight: bold;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      {}
+    </div>
+    {}
+  </body>
+</html>
+"#, results_html, script);
+
+RawHtml(full_html)
 }
 
 //
@@ -289,7 +405,7 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
 //
 
 /// GET /admin
-/// Returns the admin login page.
+/// Returns the admin login page with enhanced styling and autograder info.
 #[get("/admin")]
 async fn admin_login_page() -> RawHtml<String> {
     RawHtml(r#"
@@ -297,12 +413,19 @@ async fn admin_login_page() -> RawHtml<String> {
     <html>
       <head>
         <meta charset="UTF-8">
-        <title>Admin Login</title>
+        <title>Admin Login - Autograder</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+          body { background-color: #f8f9fa; }
+          .header { text-align: center; margin-top: 20px; }
+        </style>
       </head>
       <body>
         <div class="container mt-5">
-          <h1>Admin Login</h1>
+          <div class="header">
+            <h1>Autograder Admin Panel</h1>
+            <p>Please login to manage test cases.</p>
+          </div>
           <form action="/admin" method="post">
             <div class="mb-3">
               <label for="password" class="form-label">Password:</label>
@@ -335,17 +458,42 @@ async fn admin_login(form: Form<AdminLogin>) -> RawHtml<String> {
        <html>
          <head>
            <meta charset="UTF-8">
-           <title>Admin Panel</title>
+           <title>Admin Panel - Autograder</title>
            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+           <style>
+             body { background-color: #f8f9fa; }
+             .header { text-align: center; margin-top: 20px; }
+           </style>
          </head>
          <body>
            <div class="container mt-5">
-             <h1>Admin Panel - Select Question to Edit Test Cases</h1>
-             <ul class="list-group">
-               <li class="list-group-item"><a href="/admin/edit?question=q1">Edit Q1 Test Cases</a></li>
-               <li class="list-group-item"><a href="/admin/edit?question=q2">Edit Q2 Test Cases</a></li>
-               <li class="list-group-item"><a href="/admin/edit?question=q3">Edit Q3 Test Cases</a></li>
-             </ul>
+             <div class="header">
+               <h1>Autograder Admin Panel</h1>
+               <p>Select a question to edit its test cases.</p>
+             </div>
+            <ul class="list-group">
+              <li class="list-group-item"><a href="/admin/edit?question=q1">Edit Q1 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q2">Edit Q2 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q3">Edit Q3 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q4">Edit Q4 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q5">Edit Q5 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q6">Edit Q6 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q7">Edit Q7 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q8">Edit Q8 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q9">Edit Q9 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q10">Edit Q10 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q11">Edit Q11 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q12">Edit Q12 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q13">Edit Q13 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q14">Edit Q14 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q15">Edit Q15 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q16">Edit Q16 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q17">Edit Q17 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q18">Edit Q18 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q19">Edit Q19 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q20">Edit Q20 Test Cases</a></li>
+              <li class="list-group-item"><a href="/admin/edit?question=q21">Edit Q21 Test Cases</a></li>
+            </ul>
            </div>
          </body>
        </html>
@@ -354,13 +502,39 @@ async fn admin_login(form: Form<AdminLogin>) -> RawHtml<String> {
 }
 
 /// GET /admin/edit
-/// Returns a page for editing test cases for a given question.
+/// Returns a page for editing test cases for a given question with improved styling.
 #[get("/admin/edit?<question>")]
 async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
     let q = question.unwrap_or_else(|| "q1".to_string());
     let content = fs::read_to_string("test_cases.json").unwrap_or_else(|_| "{}".to_string());
     let mut test_cases_map: TestCasesMap = serde_json::from_str(&content).unwrap_or_else(|_| HashMap::new());
     let cases = test_cases_map.entry(q.clone()).or_insert(Vec::new());
+
+    // You may wish to customize the question description here as well.
+    let question_desc = match q.as_str() {
+      "q1"  => "Compute average of positive and negative numbers from 15 decimal inputs.",
+      "q2"  => "Determine the Tic Tac Toe game outcome (win, draw, in progress, invalid board).",
+      "q3"  => "Compute the sum of the series: 9 + 99 + 999 + ... for n terms.",
+      "q4"  => "Count positive, negative, and zero values until the same value is entered consecutively.",
+      "q5"  => "Find the smallest, second smallest, third smallest, and largest values with termination when the largest remains unchanged for n iterations.",
+      "q6"  => "Repeatedly check if an input character is a vowel or a consonant (ends on \"#\").",
+      "q7"  => "Find and display all prime numbers within a given range.",
+      "q8"  => "Display a right-angle triangle pattern based on the number of rows provided.",
+      "q9"  => "Display even natural numbers for n terms and compute their sum.",
+      "q10" => "Reverse the digits of a given number.",
+      "q11" => "Compute 1/(1-x) using Taylor series expansion until the precision threshold is met.",
+      "q12" => "Perform a bitwise operation (AND, OR, XOR) on two hexadecimal inputs.",
+      "q13" => "Calculate the cosine of a given angle (in degrees) using Taylor series.",
+      "q14" => "Convert a binary number provided as a hexadecimal input into its decimal equivalent.",
+      "q15" => "Copy an input text file exactly to an output file.",
+      "q16" => "Scan a text file and extract identifiers.",
+      "q17" => "Scan a text file and output all identifiers in uppercase.",
+      "q18" => "Scan a text file and recognize basic operators (+, -, *, /, %).",
+      "q19" => "Extend operator recognition to include increment, decrement, assignment, and compound operators.",
+      "q20" => "Recognize special characters (dot, comma, semicolon, colon) in a text file.",
+      "q21" => "An integrated scanner program that combines identifier, operator, and special character recognition.",
+      _     => ""
+  };
 
     let mut form_html = format!(r#"
        <!DOCTYPE html>
@@ -375,20 +549,23 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
                padding: 10px; 
                border: 1px solid #ccc; 
                position: relative;
+               background-color: #ffffff;
              }}
              .remove-btn {{
                position: absolute;
                top: 10px;
                right: 10px;
              }}
+             body {{ background-color: #f8f9fa; }}
            </style>
          </head>
          <body>
            <div class="container mt-5">
-             <h1>Edit Test Cases for {}</h1>
+             <h1>Edit Test Cases for {} ({})</h1>
+             <p class="mb-4">Modify the test cases below or add new ones as needed.</p>
              <form id="test-cases-form" action="/admin/edit" method="post">
                <input type="hidden" name="question" value="{}">
-    "#, q, q, q);
+    "#, q, q, question_desc, q);
 
     for case in cases {
         form_html.push_str(&format!(r#"
