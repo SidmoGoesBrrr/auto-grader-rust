@@ -1,18 +1,19 @@
+// Import Rocket macros and external crates.
 #[macro_use] extern crate rocket;
 
 use rocket::form::Form;
-use rocket::fs::TempFile;
+use rocket::fs::{TempFile, FileServer, relative};
 use rocket::response::content::RawHtml;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::io::Write;
 use std::fs;
+use std::env;
+use std::path::{Path, PathBuf};
 
-//
-// Data Structures
-//
-
+/// Data structure representing a single test case.
+/// Each test case includes a description, input string, and expected output.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct TestCase {
     description: String,
@@ -20,18 +21,24 @@ struct TestCase {
     expected_output: String,
 }
 
+/// Type alias for a mapping from question IDs to lists of test cases.
 type TestCasesMap = HashMap<String, Vec<TestCase>>;
 
 //
 // Routes for Uploading and Testing Code
 //
 
+/// Form data structure for file uploads.
+/// Includes the uploaded C file and the question identifier.
 #[derive(FromForm)]
 struct Upload<'r> {
     file: TempFile<'r>,
     question: String,
 }
 
+/// GET /
+/// Returns the index page with a form for uploading C code.
+/// The page also includes a link to the favicon (served from /static).
 #[get("/")]
 async fn index() -> RawHtml<&'static str> {
     RawHtml(r#"
@@ -41,6 +48,7 @@ async fn index() -> RawHtml<&'static str> {
         <meta charset="UTF-8">
         <title>Autograder</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
       </head>
       <body>
         <div class="container mt-5">
@@ -66,26 +74,33 @@ async fn index() -> RawHtml<&'static str> {
     "#)
 }
 
+/// POST /upload
+/// Handles the file upload, compiles the C code, loads test cases, and runs them
+/// inside a sandboxed environment using NSJail.
 #[post("/upload", data = "<form>")]
 async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
     use uuid::Uuid;
-    // Handle empty file uploads.
+
+    // Check if a file was uploaded.
     if form.file.name().is_none() {
         return RawHtml("<h2>No file uploaded. Try again with a valid .c file</h2>".to_string());
     }
 
-    // Define and ensure the temporary directory exists.
-    let temp_dir = "tempfiles";
-    if let Err(e) = fs::create_dir_all(temp_dir) {
+    // Build an absolute path for the temporary directory.
+    let cwd = env::current_dir().expect("Failed to get current directory");
+    let temp_dir: PathBuf = cwd.join("tempfiles");
+
+    // Create the tempfiles directory if it doesn't exist.
+    if let Err(e) = fs::create_dir_all(&temp_dir) {
         return RawHtml(format!("<h2>Error creating temp directory: {}</h2>", e));
     }
 
-    // Generate unique file names.
-    let unique_id = Uuid::new_v4();
-    let tmp_path = format!("{}/{}.c", temp_dir, unique_id);
-    let exe_path = format!("{}/{}", temp_dir, unique_id);
+    // Generate unique file names using Uuid.
+    let unique_id = Uuid::new_v4().to_string();
+    let tmp_path = temp_dir.join(format!("{}.c", unique_id));
+    let exe_path = temp_dir.join(&unique_id);
 
-    // Save the uploaded file.
+    // Save the uploaded C file to disk.
     if let Err(e) = form.file.persist_to(&tmp_path).await {
         return RawHtml(format!("<h2>Error saving file: {}</h2>", e));
     }
@@ -97,6 +112,7 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
         .arg(&tmp_path)
         .output();
 
+    // Handle compilation errors.
     let compile_output = match compile {
         Ok(output) => output,
         Err(e) => {
@@ -109,6 +125,19 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
         let err_msg = String::from_utf8_lossy(&compile_output.stderr);
         let _ = fs::remove_file(&tmp_path);
         return RawHtml(format!("<h2>Compilation errors:</h2><pre>{}</pre>", err_msg));
+    }
+
+    // Set executable permissions explicitly.
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(e) = fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)) {
+        eprintln!("Error setting permissions on executable: {}", e);
+    }
+
+    // Verify that the executable exists.
+    let exe_path_str = exe_path.to_string_lossy().into_owned();
+    if !Path::new(&exe_path).exists() {
+        eprintln!("Executable not found at: {}", exe_path_str);
+        return RawHtml("<h2>Internal error: compiled executable not found.</h2>".to_string());
     }
 
     // Load test cases from the external JSON file.
@@ -140,20 +169,40 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
         }
     };
 
-    // Run each test case.
     let mut results = Vec::new();
+
+    // Loop through each test case.
     for case in cases {
-        let mut child = match Command::new(format!("./{}", exe_path))
+        // Check again that the executable exists.
+        if !Path::new(&exe_path).exists() {
+            eprintln!("Executable not found at: {}", exe_path_str);
+            return RawHtml("<h2>Internal error: compiled executable not found.</h2>".to_string());
+        }
+
+        // Use NSJail to run the executable. We bindmount the tempfiles directory,
+        // as well as necessary system directories for dynamic linking.
+        let mut child = match Command::new("nsjail")
+            .args(&[
+                "--mode=exec",
+                "--disable_clone_newuser",
+                // Bind the tempfiles directory so the executable is visible.
+                "--bindmount", "/app/tempfiles:/app/tempfiles",
+                // Bind additional system library directories (adjust these as needed):
+                "--bindmount", "/lib:/lib",
+                "--bindmount", "/usr/lib:/usr/lib",
+                "--", &exe_path_str,
+            ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn() {
                 Ok(child) => child,
                 Err(e) => {
-                    results.push((case.description.clone(), false, format!("Error running the program: {}", e)));
+                    results.push((case.description.clone(), false, format!("Error running the program with NSJail: {}", e)));
                     continue;
                 }
             };
 
+        // Write the test case input to the program's stdin.
         {
             let child_stdin = child.stdin.as_mut().expect("Failed to open stdin");
             if let Err(e) = child_stdin.write_all(case.input.as_bytes()) {
@@ -162,6 +211,7 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
             }
         }
 
+        // Wait for the program to finish and capture its output.
         let run_output = match child.wait_with_output() {
             Ok(output) => output,
             Err(e) => {
@@ -177,11 +227,11 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
         results.push((case.description.clone(), passed, result_text));
     }
 
-    // Delete temporary files.
+    // Clean up temporary files after processing all test cases.
     let _ = fs::remove_file(&tmp_path);
     let _ = fs::remove_file(&exe_path);
 
-    // Build the results HTML with animated reveal.
+    // Build the HTML output to display test results with an animated reveal.
     let mut results_html = String::from("<h1>Test Results</h1><div id='results'>");
     for (i, (desc, passed, details)) in results.into_iter().enumerate() {
         let bg_class = if passed { "bg-success" } else { "bg-danger" };
@@ -194,6 +244,7 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
         ));
     }
     results_html.push_str("</div><a href='/' class='btn btn-secondary'>Upload another file</a>");
+
     let script = r#"
     <script>
       window.addEventListener('DOMContentLoaded', () => {
@@ -237,7 +288,8 @@ async fn upload(mut form: Form<Upload<'_>>) -> RawHtml<String> {
 // Admin Panel Routes
 //
 
-// GET /admin shows a login form.
+/// GET /admin
+/// Returns the admin login page.
 #[get("/admin")]
 async fn admin_login_page() -> RawHtml<String> {
     RawHtml(r#"
@@ -264,12 +316,14 @@ async fn admin_login_page() -> RawHtml<String> {
     "#.to_string())
 }
 
+/// Data structure representing admin login credentials.
 #[derive(rocket::form::FromForm)]
 struct AdminLogin {
     password: String,
 }
 
-// POST /admin validates the password and displays a selection page.
+/// POST /admin
+/// Processes the admin login and, if successful, displays the admin panel.
 #[post("/admin", data = "<form>")]
 async fn admin_login(form: Form<AdminLogin>) -> RawHtml<String> {
     let admin_password = "secret";
@@ -298,6 +352,9 @@ async fn admin_login(form: Form<AdminLogin>) -> RawHtml<String> {
     "#;
     RawHtml(html.to_string())
 }
+
+/// GET /admin/edit
+/// Returns a page for editing test cases for a given question.
 #[get("/admin/edit?<question>")]
 async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
     let q = question.unwrap_or_else(|| "q1".to_string());
@@ -305,7 +362,6 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
     let mut test_cases_map: TestCasesMap = serde_json::from_str(&content).unwrap_or_else(|_| HashMap::new());
     let cases = test_cases_map.entry(q.clone()).or_insert(Vec::new());
 
-    // Build a form that lists each test case with separate input fields.
     let mut form_html = format!(r#"
        <!DOCTYPE html>
        <html>
@@ -334,7 +390,6 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
                <input type="hidden" name="question" value="{}">
     "#, q, q, q);
 
-    // Loop through existing test cases.
     for case in cases {
         form_html.push_str(&format!(r#"
            <div class="test-case">
@@ -358,7 +413,6 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
         htmlescape::encode_minimal(&case.expected_output)));
     }
 
-    // Container for dynamically added test cases.
     form_html.push_str(r#"
                <div id="new-test-case-container"></div>
                <button type="button" class="btn btn-secondary" onclick="addTestCase()">Add Test Case</button>
@@ -368,7 +422,6 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
            </div>
            <script>
              function removeTestCase(button) {
-               // Remove the parent test-case div.
                button.parentElement.remove();
              }
              function addTestCase() {
@@ -399,7 +452,7 @@ async fn admin_edit_page(question: Option<String>) -> RawHtml<String> {
     RawHtml(form_html)
 }
 
-
+/// Data structure for the form used to update test cases.
 #[derive(rocket::form::FromForm)]
 struct AdminEditForm {
     question: String,
@@ -408,7 +461,8 @@ struct AdminEditForm {
     exp: Vec<String>,
 }
 
-// POST /admin/edit updates the test cases for the selected question.
+/// POST /admin/edit
+/// Updates the test cases for a given question and writes them back to the JSON file.
 #[post("/admin/edit", data = "<form>")]
 async fn admin_edit_update(form: Form<AdminEditForm>) -> RawHtml<String> {
     let q = &form.question;
@@ -435,14 +489,17 @@ async fn admin_edit_update(form: Form<AdminEditForm>) -> RawHtml<String> {
 //
 // Launch the Application
 //
+
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![
-        index, 
-        upload, 
-        admin_login_page, 
-        admin_login, 
-        admin_edit_page, 
-        admin_edit_update
-    ])
+    rocket::build()
+        .mount("/", routes![
+            index, 
+            upload, 
+            admin_login_page, 
+            admin_login, 
+            admin_edit_page, 
+            admin_edit_update
+        ])
+        .mount("/static", FileServer::from(relative!("static")))
 }

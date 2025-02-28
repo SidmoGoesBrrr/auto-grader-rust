@@ -1,4 +1,5 @@
 {
+  "q3": [],
   "q1": [
     {
       "description": "All positives",
@@ -36,6 +37,37 @@
       "expected_output": "This should show up as a failed test case!!!!"
     }
   ],
-  "q2": [],
-  "q3": []
+  "q2": [
+
+    {
+      "description": "X wins in first row",
+      "input": "XXXOO    ",
+      "expected_output": "X wins"
+    },
+    {
+      "description": "O wins in second column",
+      "input": "XOXOOXO  ",
+      "expected_output": "O wins"
+    },
+    {
+      "description": "Draw game",
+      "input": "XOXOXOOXO",
+      "expected_output": "Draw"
+    },
+    {
+      "description": "Game in progress",
+      "input": "XOXOX O  ",
+      "expected_output": "Game in progress"
+    },
+    {
+      "description": "Invalid board length (too short)",
+      "input": "XOXOXO",
+      "expected_output": "Invalid board"
+    },
+    {
+      "description": "Invalid board length (too long)",
+      "input": "XOXOXOOXOX",
+      "expected_output": "Invalid board"
+    }
+  ]
 }
